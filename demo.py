@@ -1,13 +1,19 @@
 import cv2
+import os
 from ultralytics import YOLO
 from collections import defaultdict
+from useCase import speed
+from useCase import write_Speed_csv
 
 
-# Load the YOLO model
+
+
+
+# Load the YOLO Pre trainded model
 model = YOLO('yolo11n.pt')
 
 class_list = model.names  # List of class names
-
+print(class_list)
 # Open the video file
 cap = cv2.VideoCapture('Data/Video/3.mp4')
 
@@ -27,6 +33,11 @@ count_blue_to_red = defaultdict(int)  # Moving upwards
 crossed_red_first = {}
 crossed_blue_first = {}
 
+# Dictionaries to store the crossing times for each track id
+red_crossing_times = {}
+blue_crossing_times = {}
+# To ensure speed is computed only once per track
+computed_speeds = {}
 # Loop through video frames
 while cap.isOpened():
     ret, frame = cap.read()
@@ -76,12 +87,14 @@ while cap.isOpened():
                 # Record that the object crossed the red line
                 if track_id not in crossed_red_first:
                     crossed_red_first[track_id] = True
+                    red_crossing_times[track_id] = current_time
 
             # Check if the object crosses the blue line
             if line_y_blue - 5 <= cy <= line_y_blue + 5:
                 # Record that the object crossed the blue line
                 if track_id not in crossed_blue_first:
                     crossed_blue_first[track_id] = True
+                    blue_crossing_times[track_id] = current_time
 
             # Counting logic for downward direction (red -> blue)
             if track_id in crossed_red_first and track_id not in counted_ids_red_to_blue:
@@ -94,7 +107,28 @@ while cap.isOpened():
                 if line_y_red - 5 <= cy <= line_y_red + 5:
                     counted_ids_blue_to_red.add(track_id)
                     count_blue_to_red[class_name] += 1
+                    # Calculate and record speed if both crossing times are available and speed not already computed
+                    if (track_id in red_crossing_times and track_id in blue_crossing_times and
+                            track_id not in computed_speeds):
+                        # Determine direction based on which crossing occurred first
+                        if red_crossing_times[track_id] < blue_crossing_times[track_id]:
+                            direction = "Red to Blue"
+                            speed = speed.calculate_speed(red_crossing_times[track_id], blue_crossing_times[track_id],
+                                                    speed.distance_between_lines)
+                            count_red_to_blue[class_name] += 1
+                        else:
+                            direction = "Blue to Red"
+                            speed = speed.calculate_speed(blue_crossing_times[track_id], red_crossing_times[track_id],
+                                                    speed.distance_between_lines)
+                            count_blue_to_red[class_name] += 1
 
+                        computed_speeds[track_id] = speed
+                        write_Speed_csv.write_speed_to_csv(track_id, class_name, direction, speed)
+
+    if track_id in computed_speeds:
+        current_speed = computed_speeds[track_id]
+        cv2.putText(frame, f"Speed: {current_speed:.2f} km/h", (x1, y1 - 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
     # Display the counts on the frame
     y_offset = 30
     for class_name, count in count_red_to_blue.items():
