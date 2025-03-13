@@ -4,7 +4,7 @@ import time
 from ultralytics import YOLO
 from collections import defaultdict
 from useCase import speed
-
+from useCase import write_Speed_csv
 model = YOLO('yolo11n.pt')
 
 class_list = model.names  # List of class names
@@ -12,9 +12,12 @@ class_list = model.names  # List of class names
 cap = cv2.VideoCapture(r'C:\Users\tar30\PycharmProjects\PythonProject3\Data\Video\3.mp4')
 
 # Dictionaries to store timestamps
-entry_times = {}  # Stores when an object enters between Track1 & Track2
-exit_times = {}   # Stores when an object leaves
-duration={}
+entry_times = {}  # Dictionary to store entry times for each track_id
+exit_times = {}   # Dictionary to store exit times for each track_id
+calculateSpeed = {}  # Dictionary to store calculated speeds
+
+displayed_speeds = {}   # To persist speed display
+
 # Define line positions for counting
 line_y_track1 = 298  # Red line position
 line_y_track2 = line_y_track1 + 100  # Blue line position
@@ -72,13 +75,15 @@ while cap.isOpened():
                 if line_y_track1 - 5 <= cy <= line_y_track1 + 5:
                     if track_id not in crossed_red_first:
                         crossed_red_first[track_id] = True
+
                         entry_times[track_id] = time.time()
 
                 # Record that the object crossed Track2
                 if line_y_track2 - 5 <= cy <= line_y_track2 + 5:
                     if track_id not in crossed_blue_first:
                         crossed_blue_first[track_id] = True
-                        exit_times[track_id] = time.time()  # Store exit time
+
+                        entry_times[track_id] = time.time()  # Store exit time
 
 
 
@@ -95,17 +100,29 @@ while cap.isOpened():
                     if line_y_track2 - 5 <= cy <= line_y_track2 + 5:
                         counted_ids_red_to_blue.add(track_id)
                         count_red_to_blue[class_name] += 1
+                        exit_times[track_id]=time.time()
+                        calculateSpeed[track_id]=speed.calculate_speed(exit_times[track_id] - entry_times[track_id])
+                        displayed_speeds[track_id] = calculateSpeed[track_id]  # Store for display
+
+
+
+
 
                 # Counting logic for upward direction (blue -> red)
                 if track_id in crossed_blue_first and track_id not in counted_ids_blue_to_red:
                     if line_y_track1 - 5 <= cy <= line_y_track1 + 5:
                         counted_ids_blue_to_red.add(track_id)
                         count_blue_to_red[class_name] += 1
+                        exit_times[track_id] = time.time()
+                        calculateSpeed[track_id] = speed.calculate_speed(exit_times[track_id] - entry_times[track_id])
+                        displayed_speeds[track_id] = calculateSpeed[track_id]  # Store for display
 
-
-                cv2.putText(frame, f": {speed.calculate_speed(exit_times[track_id] - entry_times[track_id])}KM/H", (x1, y1 - 10),
+                # Always display speed if calculated
+            if track_id in displayed_speeds:
+                cv2.putText(frame,
+                            f"{displayed_speeds[track_id]} KM/H",
+                            (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
 
         # Display the counts on the frame
     y_offset = 30
@@ -120,11 +137,13 @@ while cap.isOpened():
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2, cv2.LINE_AA)
         y_offset += 30
 
+
+
     # Show the frame
     cv2.imshow("YOLO Object Tracking & Counting", frame)
 
     # Exit loop if 'ESC' key is pressed
-    if cv2.waitKey(1) & 0xFF == 27:
+    if cv2.waitKey(0) & 0xFF == 27:
         break
 
 # Release resources
